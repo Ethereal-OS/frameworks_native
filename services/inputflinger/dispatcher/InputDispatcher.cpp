@@ -3769,6 +3769,16 @@ void InputDispatcher::synthesizeCancelationEventsForWindowLocked(
     }
 }
 
+void InputDispatcher::synthesizeCancelationEventsForWindowLocked(
+        const sp<WindowInfoHandle>& windowHandle, const CancelationOptions& options) {
+    if (windowHandle != nullptr) {
+        sp<Connection> wallpaperConnection = getConnectionLocked(windowHandle->getToken());
+        if (wallpaperConnection != nullptr) {
+            synthesizeCancelationEventsForConnectionLocked(wallpaperConnection, options);
+        }
+    }
+}
+
 std::unique_ptr<MotionEntry> InputDispatcher::splitMotionEvent(
         const MotionEntry& originalMotionEntry, BitSet32 pointerIds) {
     ALOG_ASSERT(pointerIds.value != 0);
