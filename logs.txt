@@ -1,0 +1,7 @@
+Auto-merging cmds/dumpstate/dumpstate.cpp
+Auto-merging libs/gui/BLASTBufferQueue.cpp
+Auto-merging libs/gui/Surface.cpp
+Auto-merging libs/gui/include/gui/BLASTBufferQueue.h
+Auto-merging libs/gui/include/gui/Surface.h
+Auto-merging services/inputflinger/dispatcher/InputDispatcher.cpp
+CONFLICT (content): Merge conflict in services/inputflinger/dispatcher/InputDispatcher.cpp

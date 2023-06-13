@@ -3718,8 +3718,6 @@ void InputDispatcher::synthesizePointerDownEventsForConnectionLocked(
     target.inputChannel = connection->inputChannel;
     target.flags = targetFlags;
 
-    const bool wasEmpty = connection->outboundQueue.empty();
-
     for (std::unique_ptr<EventEntry>& downEventEntry : downEvents) {
         switch (downEventEntry->type) {
             case EventEntry::Type::MOTION: {
@@ -3748,6 +3746,16 @@ void InputDispatcher::synthesizePointerDownEventsForConnectionLocked(
     // If the outbound queue was previously empty, start the dispatch cycle going.
     if (wasEmpty && !connection->outboundQueue.empty()) {
         startDispatchCycleLocked(currentTime, connection);
+    }
+}
+
+void InputDispatcher::synthesizeCancelationEventsForWindowLocked(
+        const sp<WindowInfoHandle>& windowHandle, const CancelationOptions& options) {
+    if (windowHandle != nullptr) {
+        sp<Connection> wallpaperConnection = getConnectionLocked(windowHandle->getToken());
+        if (wallpaperConnection != nullptr) {
+            synthesizeCancelationEventsForConnectionLocked(wallpaperConnection, options);
+        }
     }
 }
 
