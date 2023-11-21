@@ -1862,13 +1862,12 @@ int Surface::dispatchGetLastQueuedBuffer2(va_list args) {
 
 int Surface::dispatchSetFrameTimelineInfo(va_list args) {
     ATRACE_CALL();
-    auto frameNumber = static_cast<uint64_t>(va_arg(args, uint64_t));
     auto frameTimelineVsyncId = static_cast<int64_t>(va_arg(args, int64_t));
     auto inputEventId = static_cast<int32_t>(va_arg(args, int32_t));
     auto startTimeNanos = static_cast<int64_t>(va_arg(args, int64_t));
 
     ALOGV("Surface::%s", __func__);
-    return setFrameTimelineInfo(frameNumber, {frameTimelineVsyncId, inputEventId, startTimeNanos});
+    return setFrameTimelineInfo({frameTimelineVsyncId, inputEventId, startTimeNanos});
 }
 
 bool Surface::transformToDisplayInverse() const {
@@ -2651,8 +2650,7 @@ status_t Surface::setFrameRate(float frameRate, int8_t compatibility,
                                            changeFrameRateStrategy);
 }
 
-status_t Surface::setFrameTimelineInfo(uint64_t /*frameNumber*/,
-                                       const FrameTimelineInfo& frameTimelineInfo) {
+status_t Surface::setFrameTimelineInfo(const FrameTimelineInfo& frameTimelineInfo) {
     return composerService()->setFrameTimelineInfo(mGraphicBufferProducer, frameTimelineInfo);
 }
 
