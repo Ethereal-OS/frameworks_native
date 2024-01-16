@@ -45,7 +45,6 @@ cc_library_shared {
         "libhidlbase",
         "liblog",
         "libutils",
-        "libcutils",
         "android.hardware.vibrator-V2-cpp",
         "android.hardware.vibrator@1.0",
         "android.hardware.vibrator@1.1",
@@ -59,6 +58,12 @@ cc_library_shared {
         "-Wunused",
         "-Wunreachable-code",
     ],
+
+    // FIXME: Workaround LTO build breakage
+    // http://b/241699694
+    lto: {
+        never: true,
+    },
 
     local_include_dirs: ["include"],
 

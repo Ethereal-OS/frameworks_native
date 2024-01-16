@@ -115,53 +115,6 @@ status_t BufferQueueConsumer::acquireBuffer(BufferItem* outBuffer,
 
         BufferQueueCore::Fifo::iterator front(mCore->mQueue.begin());
 
-        if (!mCore->mConsumerCanWait && !mCore->mQueue.empty()) {
-            // If there's a droppable buffer that BQP::queueBuffer() decided to keep,
-            // check if we should drop it here (i.e. there's a newer buffer we can
-            // use). This ensures no additional latency is introduced in async mode
-            // if the last queued buffer's fence has already signaled.
-
-            ATRACE_NAME("checkDroppable");
-            while (mCore->mQueue.size() > 1) {
-                const BufferItem& bufferItem(mCore->mQueue[1]);
-                if (!front->mIsDroppable ||
-                    (bufferItem.mFence->isValid() &&
-                     bufferItem.mFence->getStatus() != Fence::Status::Signaled)) {
-                    break;
-                }
-
-                ATRACE_BUFFER_INDEX(front->mSlot);
-                BQ_LOGV("acquireBuffer: droppable buffer slot=%d size=%zu", front->mSlot,
-                        mCore->mQueue.size());
-
-                if (!front->mIsStale) {
-                    // Front buffer is still in mSlots, so mark the slot as free
-                    mSlots[front->mSlot].mBufferState.freeQueued();
-
-                    // After leaving shared buffer mode, the shared buffer will
-                    // still be around. Mark it as no longer shared if this
-                    // operation causes it to be free.
-                    if (!mCore->mSharedBufferMode && mSlots[front->mSlot].mBufferState.isFree()) {
-                        mSlots[front->mSlot].mBufferState.mShared = false;
-                    }
-
-                    // Don't put the shared buffer on the free list
-                    if (!mSlots[front->mSlot].mBufferState.isShared()) {
-                        mCore->mActiveBuffers.erase(front->mSlot);
-                        mCore->mFreeBuffers.push_back(front->mSlot);
-                    }
-
-                    if (mCore->mBufferReleasedCbEnabled) {
-                        listener = mCore->mConnectedProducerListener;
-                    }
-                    ++numDroppedBuffers;
-                }
-
-                mCore->mQueue.erase(front);
-                front = mCore->mQueue.begin();
-            }
-        }
-
         // If expectedPresent is specified, we may not want to return a buffer yet.
         // If it's specified and there's more than one buffer queued, we may want
         // to drop a buffer.
@@ -308,17 +261,6 @@ status_t BufferQueueConsumer::acquireBuffer(BufferItem* outBuffer,
             BQ_LOGV("acquireBuffer: front buffer is not droppable");
             return NO_BUFFER_AVAILABLE;
         } else {
-            if (!mCore->mConsumerCanWait && front->mFence->isValid()) {
-                // Consumer can decide to acquire the buffer only if its fence
-                // has already signaled, in which case the submission of other
-                // GPU commands will not be delayed by waiting on the buffer
-                // to become ready (see GLConsumer::doGLFenceWait).
-                if (Fence::Status::Signaled != front->mFence->getStatus()) {
-                    ATRACE_NAME("fence not signaled");
-                    BQ_LOGV("acquireBuffer: front slot's fence not signaled");
-                    return NO_BUFFER_AVAILABLE;
-                }
-            }
             slot = front->mSlot;
             *outBuffer = *front;
         }
@@ -376,47 +318,34 @@ status_t BufferQueueConsumer::detachBuffer(int slot) {
     ATRACE_CALL();
     ATRACE_BUFFER_INDEX(slot);
     BQ_LOGV("detachBuffer: slot %d", slot);
-    // MIUI ADD
-    sp<IProducerListener> listener;
+    std::lock_guard<std::mutex> lock(mCore->mMutex);
 
-    {
-        std::lock_guard<std::mutex> lock(mCore->mMutex);
-
-        if (mCore->mIsAbandoned) {
-            BQ_LOGE("detachBuffer: BufferQueue has been abandoned");
-            return NO_INIT;
-        }
-
-        if (mCore->mSharedBufferMode || slot == mCore->mSharedBufferSlot) {
-            BQ_LOGE("detachBuffer: detachBuffer not allowed in shared buffer mode");
-            return BAD_VALUE;
-        }
-
-        if (slot < 0 || slot >= BufferQueueDefs::NUM_BUFFER_SLOTS) {
-            BQ_LOGE("detachBuffer: slot index %d out of range [0, %d)",
-                    slot, BufferQueueDefs::NUM_BUFFER_SLOTS);
-            return BAD_VALUE;
-        } else if (!mSlots[slot].mBufferState.isAcquired()) {
-            BQ_LOGE("detachBuffer: slot %d is not owned by the consumer "
-                    "(state = %s)", slot, mSlots[slot].mBufferState.string());
-            return BAD_VALUE;
-        }
-
-        mSlots[slot].mBufferState.detachConsumer();
-        mCore->mActiveBuffers.erase(slot);
-        mCore->mFreeSlots.insert(slot);
-        mCore->clearBufferSlotLocked(slot);
-        listener = mCore->mConnectedProducerListener;
-        mCore->mDequeueCondition.notify_all();
-        VALIDATE_CONSISTENCY();
+    if (mCore->mIsAbandoned) {
+        BQ_LOGE("detachBuffer: BufferQueue has been abandoned");
+        return NO_INIT;
     }
-    // MIUI ADD: START
-    // Call back without lock held
-    if (listener != nullptr) {
-        BQ_LOGE("BQ detachBuffer %d",slot);
-        listener->onBufferDetached(slot);
+
+    if (mCore->mSharedBufferMode || slot == mCore->mSharedBufferSlot) {
+        BQ_LOGE("detachBuffer: detachBuffer not allowed in shared buffer mode");
+        return BAD_VALUE;
     }
-    // MI ADD: END
+
+    if (slot < 0 || slot >= BufferQueueDefs::NUM_BUFFER_SLOTS) {
+        BQ_LOGE("detachBuffer: slot index %d out of range [0, %d)",
+                slot, BufferQueueDefs::NUM_BUFFER_SLOTS);
+        return BAD_VALUE;
+    } else if (!mSlots[slot].mBufferState.isAcquired()) {
+        BQ_LOGE("detachBuffer: slot %d is not owned by the consumer "
+                "(state = %s)", slot, mSlots[slot].mBufferState.string());
+        return BAD_VALUE;
+    }
+
+    mSlots[slot].mBufferState.detachConsumer();
+    mCore->mActiveBuffers.erase(slot);
+    mCore->mFreeSlots.insert(slot);
+    mCore->clearBufferSlotLocked(slot);
+    mCore->mDequeueCondition.notify_all();
+    VALIDATE_CONSISTENCY();
 
     return NO_ERROR;
 }
@@ -756,7 +685,8 @@ status_t BufferQueueConsumer::setMaxAcquiredBufferCount(
         }
 
         if ((maxAcquiredBuffers + mCore->mMaxDequeuedBufferCount +
-             mCore->getExtraBufferCountLocked()) > mCore->mMaxBufferCount) {
+                (mCore->mAsyncMode || mCore->mDequeueBufferCannotBlock ? 1 : 0))
+                > mCore->mMaxBufferCount) {
             BQ_LOGE("setMaxAcquiredBufferCount: %d acquired buffers would "
                     "exceed the maxBufferCount (%d) (maxDequeued %d async %d)",
                     maxAcquiredBuffers, mCore->mMaxBufferCount,
@@ -856,34 +786,6 @@ status_t BufferQueueConsumer::getOccupancyHistory(bool forceFlush,
 status_t BufferQueueConsumer::discardFreeBuffers() {
     std::lock_guard<std::mutex> lock(mCore->mMutex);
     mCore->discardFreeBuffersLocked();
-    return NO_ERROR;
-}
-
-status_t BufferQueueConsumer::setConsumerCanWait(bool canWait) {
-    ATRACE_CALL();
-    BQ_LOGV("setConsumerCanWait: %d", canWait);
-    std::lock_guard lock(mCore->mMutex);
-
-    if (mCore->mConsumerCanWait == canWait) {
-        return NO_ERROR;
-    }
-
-    const int oldMaxBufferCount = mCore->getMaxBufferCountLocked();
-    mCore->mConsumerCanWait = canWait;
-
-    // Make sure we have enough room for an additional buffer if mConsumerCanWait
-    // is false (see BufferQueueProducer::queueBuffer).
-    const int delta = mCore->getMaxBufferCountLocked() - oldMaxBufferCount;
-    if (!mCore->adjustAvailableSlotsLocked(delta)) {
-        BQ_LOGE("setConsumerCanWait: failed to adjust the number of available "
-                "slots. Delta = %d",
-                delta);
-        mCore->mConsumerCanWait = !canWait; // revert
-        return BAD_VALUE;
-    }
-
-    mCore->mDequeueCondition.notify_all();
-    VALIDATE_CONSISTENCY();
     return NO_ERROR;
 }
 

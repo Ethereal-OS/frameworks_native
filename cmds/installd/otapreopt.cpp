@@ -27,6 +27,7 @@
 #include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <sys/wait.h>
 
 #include <android-base/logging.h>
 #include <android-base/macros.h>
@@ -504,6 +505,11 @@ private:
             return 0;
         }
 
+        if (WIFSIGNALED(dexopt_result)) {
+            LOG(WARNING) << "Interrupted by signal " << WTERMSIG(dexopt_result) ;
+            return dexopt_result;
+        }
+
         // If this was a profile-guided run, we may have profile version issues. Try to downgrade,
         // if possible.
         if ((parameters_.dexopt_flags & DEXOPT_PROFILE_GUIDED) == 0) {
@@ -702,6 +708,11 @@ bool create_cache_path(char path[PKG_PATH_MAX],
     }
     strcpy(path, assembled_path.c_str());
 
+    return true;
+}
+
+bool force_compile_without_image() {
+    // We don't have a boot image anyway. Compile without a boot image.
     return true;
 }
 

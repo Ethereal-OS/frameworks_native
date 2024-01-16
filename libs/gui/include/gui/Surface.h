@@ -54,11 +54,6 @@ public:
     virtual bool needsReleaseNotify() = 0;
 
     virtual void onBuffersDiscarded(const std::vector<sp<GraphicBuffer>>& buffers) = 0;
-    // MIUI ADD: START
-    virtual void onBufferDetached(int /**slot**/) {
-        //default do nothing
-    }
-    // MIUI ADD: END
 };
 
 /*
@@ -198,7 +193,7 @@ public:
 
     virtual status_t setFrameRate(float frameRate, int8_t compatibility,
                                   int8_t changeFrameRateStrategy);
-    virtual status_t setFrameTimelineInfo(const FrameTimelineInfo& info);
+    virtual status_t setFrameTimelineInfo(uint64_t frameNumber, const FrameTimelineInfo& info);
 
 protected:
     virtual ~Surface();
@@ -338,8 +333,6 @@ public:
             bool reportBufferRemoval);
     virtual int detachNextBuffer(sp<GraphicBuffer>* outBuffer,
             sp<Fence>* outFence);
-    // MIUI ADD
-    virtual void releaseSlot(int slot);
     virtual int attachBuffer(ANativeWindowBuffer*);
 
     virtual int connect(
@@ -395,12 +388,6 @@ protected:
         }
 
         virtual void onBuffersDiscarded(const std::vector<int32_t>& slots);
-
-        // MIUI ADD: START
-        virtual void onBufferDetached(int slot) {
-            mSurfaceListener->onBufferDetached(slot);
-        }
-        // MIUI ADD: END
     private:
         wp<Surface> mParent;
         sp<SurfaceListener> mSurfaceListener;
@@ -474,6 +461,8 @@ protected:
     // mHdrMetadata is the HDR metadata that will be used for the next buffer
     // queue operation.  There is no HDR metadata by default.
     HdrMetadata mHdrMetadata;
+
+    uint32_t mHdrMetaIsSet{0};
 
     // mCrop is the crop rectangle that will be used for the next buffer
     // that gets queued. It is set by calling setCrop.

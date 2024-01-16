@@ -500,11 +500,24 @@ void Scheduler::registerLayer(Layer* layer) {
     using WindowType = gui::WindowInfo::Type;
 
     scheduler::LayerHistory::LayerVoteType voteType;
+    const auto windowType = layer->getWindowType();
 
     if (!mFeatures.test(Feature::kContentDetection) ||
-        layer->getWindowType() == WindowType::STATUS_BAR) {
+        windowType == WindowType::STATUS_BAR ||
+        windowType == WindowType::SYSTEM_ALERT ||
+        windowType == WindowType::TOAST ||
+        windowType == WindowType::SYSTEM_DIALOG ||
+        windowType == WindowType::KEYGUARD_DIALOG ||
+        windowType == WindowType::INPUT_METHOD ||
+        windowType == WindowType::INPUT_METHOD_DIALOG ||
+        windowType == WindowType::NAVIGATION_BAR ||
+        windowType == WindowType::VOLUME_OVERLAY ||
+        windowType == WindowType::NAVIGATION_BAR_PANEL) {
         voteType = scheduler::LayerHistory::LayerVoteType::NoVote;
-    } else if (layer->getWindowType() == WindowType::WALLPAPER) {
+    } else if (windowType == WindowType::NOTIFICATION_SHADE) {
+        // Enforce max refresh rate for notification pulldown
+        voteType = scheduler::LayerHistory::LayerVoteType::Max;
+    } else if (windowType == WindowType::WALLPAPER) {
         // Running Wallpaper at Min is considered as part of content detection.
         voteType = scheduler::LayerHistory::LayerVoteType::Min;
     } else {
@@ -709,6 +722,13 @@ auto Scheduler::chooseDisplayMode() -> std::pair<DisplayModePtr, GlobalSignals> 
 
     const auto configs = holdRefreshRateConfigs();
 
+    // Use the lowest refresh rate on AOD/ambient display.
+    if (mPolicy.displayPowerMode == hal::PowerMode::DOZE ||
+        mPolicy.displayPowerMode == hal::PowerMode::DOZE_SUSPEND) {
+        constexpr GlobalSignals kNoSignals;
+        return {configs->getMinRefreshRate(), kNoSignals};
+    }
+
     // If Display Power is not in normal operation we want to be in performance mode. When coming
     // back to normal mode, a grace period is given with DisplayPowerTimer.
     if (mDisplayPowerTimer &&
@@ -727,9 +747,7 @@ auto Scheduler::chooseDisplayMode() -> std::pair<DisplayModePtr, GlobalSignals> 
 DisplayModePtr Scheduler::getPreferredDisplayMode() {
     std::lock_guard<std::mutex> lock(mPolicyLock);
     // Make sure the stored mode is up to date.
-    if (mPolicy.mode) {
-        mPolicy.mode = chooseDisplayMode().first;
-    }
+    mPolicy.mode = chooseDisplayMode().first;
     return mPolicy.mode;
 }
 

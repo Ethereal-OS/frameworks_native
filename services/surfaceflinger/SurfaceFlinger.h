@@ -773,6 +773,9 @@ private:
             REQUIRES(mStateLock);
     // flush pending transaction that was presented after desiredPresentTime.
     bool flushTransactionQueues(int64_t vsyncId);
+
+    std::vector<TransactionState> flushTransactions();
+
     // Returns true if there is at least one transaction that needs to be flushed
     bool transactionFlushNeeded();
 
@@ -821,7 +824,8 @@ private:
                                size_t totalTXapplied) const;
     bool stopTransactionProcessing(const std::unordered_set<sp<IBinder>, SpHash<IBinder>>&
                                            applyTokensWithUnsignaledTransactions) const;
-    bool applyTransactions(std::vector<TransactionState>& transactions, int64_t vsyncId)
+    bool applyTransactions(std::vector<TransactionState>& transactions, int64_t vsyncId);
+    bool applyTransactionsLocked(std::vector<TransactionState>& transactions, int64_t vsyncId)
             REQUIRES(mStateLock);
     uint32_t setDisplayStateLocked(const DisplayState& s) REQUIRES(mStateLock);
     uint32_t addInputWindowCommands(const InputWindowCommands& inputWindowCommands)
@@ -855,7 +859,7 @@ private:
     // this layer meaning it is entirely safe to destroy all
     // resources associated to this layer.
     void onHandleDestroyed(BBinder* handle, sp<Layer>& layer);
-    void markLayerPendingRemovalLocked(const sp<Layer>& layer) REQUIRES(mStateLock);
+    void markLayerPendingRemovalLocked(const sp<Layer>& layer);
 
     // add a layer to SurfaceFlinger
     status_t addClientLayer(const sp<Client>& client, const sp<IBinder>& handle,
@@ -1231,7 +1235,8 @@ private:
     std::unordered_set<sp<Layer>, SpHash<Layer>> mLayersWithQueuedFrames;
     // Tracks layers that need to update a display's dirty region.
     std::vector<sp<Layer>> mLayersPendingRefresh;
-    std::array<FenceWithFenceTime, 2> mPreviousPresentFences;
+    // size should be longest sf-duration / shortest vsync period and round up
+    std::array<FenceWithFenceTime, 5> mPreviousPresentFences; // currently consider 166hz.
     // True if in the previous frame at least one layer was composed via the GPU.
     bool mHadClientComposition = false;
     // True if in the previous frame at least one layer was composed via HW Composer.
@@ -1376,8 +1381,6 @@ private:
     bool mSetActiveModePending = false;
 
     bool mLumaSampling = true;
-    bool mForceLightBrightness = false;
-    bool mForceHwcBrightness = false;
     sp<RegionSamplingThread> mRegionSamplingThread;
     sp<FpsReporter> mFpsReporter;
     sp<TunnelModeEnabledReporter> mTunnelModeEnabledReporter;
