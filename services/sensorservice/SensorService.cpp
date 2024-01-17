@@ -2010,17 +2010,11 @@ bool SensorService::canAccessSensor(const Sensor& sensor, const char* operation,
     }
 
     const int32_t opCode = sensor.getRequiredAppOp();
-    int targetSdkVersion = getTargetSdkVersion(opPackageName);
+
+    bool protectedByOtherSensorsPerm = false;
 
     bool canAccess = false;
-    if (targetSdkVersion > 0 && targetSdkVersion <= __ANDROID_API_P__ &&
-            (sensor.getType() == SENSOR_TYPE_STEP_COUNTER ||
-             sensor.getType() == SENSOR_TYPE_STEP_DETECTOR)) {
-        // Allow access to step sensors if the application targets pre-Q, which is before the
-        // requirement to hold the AR permission to access Step Counter and Step Detector events
-        // was introduced.
-        canAccess = true;
-    } else if (hasPermissionForSensor(sensor)) {
+    if (hasPermissionForSensor(sensor)) {
         // Ensure that the AppOp is allowed, or that there is no necessary app op for the sensor
         if (opCode >= 0) {
             const int32_t appOpMode = sAppOpsManager.checkOp(opCode,
@@ -2029,11 +2023,45 @@ bool SensorService::canAccessSensor(const Sensor& sensor, const char* operation,
         } else {
             canAccess = true;
         }
+    } else {
+        int targetSdkVersion = getTargetSdkVersion(opPackageName);
+        if (targetSdkVersion > 0 && targetSdkVersion <= __ANDROID_API_P__ &&
+            (sensor.getType() == SENSOR_TYPE_STEP_COUNTER ||
+             sensor.getType() == SENSOR_TYPE_STEP_DETECTOR)) {
+
+            // upstream allows access to these sensors without the ACTIVITY_RECOGNITION permission
+            // for targetSdk < 29 apps, enforce the OTHER_SENSORS permission instead
+            const String16 requiredPermission("android.permission.OTHER_SENSORS");
+            protectedByOtherSensorsPerm = true;
+
+            // copied from hasPermissionForSensor() below
+            canAccess = checkPermission(requiredPermission,
+                IPCThreadState::self()->getCallingPid(), IPCThreadState::self()->getCallingUid());
+         }
     }
 
     if (!canAccess) {
         ALOGE("%s %s a sensor (%s) without holding %s", String8(opPackageName).string(),
               operation, sensor.getName().string(), sensor.getRequiredPermission().string());
+
+        if (!protectedByOtherSensorsPerm) {
+            protectedByOtherSensorsPerm = (sensor.getRequiredPermission() == "android.permission.OTHER_SENSORS");
+        }
+
+        if (protectedByOtherSensorsPerm) {
+            sp<IBinder> binder = defaultServiceManager()->getService(String16("package_native"));
+            if (binder != nullptr) {
+                sp<content::pm::IPackageManagerNative> packageManager =
+                        interface_cast<content::pm::IPackageManagerNative>(binder);
+                if (packageManager != nullptr) {
+                    int32_t callingUid = IPCThreadState::self()->getCallingUid();
+                    AutoCallerClear acc;
+                    packageManager->onDeniedSpecialRuntimePermissionOp(
+                        String16("android.permission.OTHER_SENSORS"),
+                        callingUid, opPackageName);
+                }
+            }
+        }
     }
 
     return canAccess;
